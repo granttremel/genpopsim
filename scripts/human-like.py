@@ -35,7 +35,7 @@ print(genome)
 max_gen = 100
 
 # mr = lambda gen:1+np.sin(gen/20)/2
-mr = 0.9
+mr = 0.1
 
 # Create a population
 pop = Population(
@@ -45,7 +45,7 @@ pop = Population(
     ploidy=2,
     parity=5,
     reproduction_mode=ReproductionMode.SEXUAL,
-    reproductive_rate=0.1,
+    reproductive_rate=0.015,
     mortality_rate=mr,
     allele_fitness_range=(0.1, 0.9),
     lifespan = 65
@@ -60,7 +60,7 @@ for _ in range(max_gen):
     print(f"Generation {pop.generation}: size={len(pop.individuals)}, "
             f"mean fitness={np.mean(pop.get_fitness_distribution()):.3f}")
     
-pop.tracker.plot("fitness","pop_fitness")
-pop.tracker.plot("age","pop_age")
-pop.tracker.plot("allele_frequencies","pop_alleles_{gene}")
+pop.tracker.plot("fitness","human-like_fitness")
+pop.tracker.plot("age","human-like_age")
+pop.tracker.plot("allele_frequencies","human-like_alleles_{gene}")
 

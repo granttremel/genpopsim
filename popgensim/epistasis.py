@@ -1,179 +1,105 @@
 import numpy as np
 from typing import List, Dict, Tuple
-from . import Allele, Chromosome, Individual, Population
+# from . import Allele, Chromosome, Individual, Population
+from .core import Individual, Chromosome, Allele
+from .genetics import Genome, Gene, GeneType
 
-class EpistaticFitnessCalculator:
-    """Calculate fitness with various types of epistatic interactions"""
+class FitnessCalculator:
+    """Calculate fitness based on gene network"""
     
-    def __init__(self, n_genes: int, epistasis_type: str = 'pairwise'):
-        self.n_genes = n_genes
-        self.epistasis_type = epistasis_type
-        
-        # For pairwise epistasis: which genes interact
-        self.interaction_pairs = self._generate_interaction_pairs()
-        
-        # For pathway epistasis: gene order in pathway
-        self.pathway_order = list(range(n_genes))
-        np.random.shuffle(self.pathway_order)
-        
-        # For modular epistasis: assign genes to modules
-        self.gene_modules = self._assign_modules()
-    
-    def _generate_interaction_pairs(self) -> List[Tuple[int, int]]:
-        """Generate random pairs of interacting genes"""
-        pairs = []
-        # Each gene interacts with 1-3 others
-        for i in range(self.n_genes):
-            n_interactions = np.random.randint(1, 4)
-            partners = np.random.choice(
-                [j for j in range(self.n_genes) if j != i],
-                size=min(n_interactions, self.n_genes - 1),
-                replace=False
-            )
-            for j in partners:
-                if (i, j) not in pairs and (j, i) not in pairs:
-                    pairs.append((i, j))
-        return pairs
-    
-    def _assign_modules(self, n_modules: int = 3) -> Dict[int, int]:
-        """Assign each gene to a functional module"""
-        assignments = {}
-        for i in range(self.n_genes):
-            assignments[i] = i % n_modules
-        return assignments
-    
-    def calculate_fitness(self, individual) -> float:
-        """Calculate fitness with epistatic interactions"""
-        # First, get all alleles organized by gene position
-        alleles_by_gene = self._organize_alleles_by_gene(individual)
-        
-        if self.epistasis_type == 'additive':
-            # No epistasis - simple mean
-            return np.mean([a.fitness for alleles in alleles_by_gene.values() 
-                           for a in alleles])
-        
-        elif self.epistasis_type == 'pairwise':
-            # Fitness modified by gene-gene interactions
-            base_fitness = []
-            interaction_effects = []
+    def calculate_fitness(self, individual:Individual, genome: Genome) -> float:
+        """Calculate epistatic fitness based on gene interactions"""
+        fitness_components = {}
+        chromosomes = individual.chromosomes
+        # Process each gene
+        for gene_name, gene in genome.genes.items():
+            alleles = self._get_alleles_for_gene(gene_name, chromosomes)
+            if not alleles:
+                continue
             
-            # Base fitness from individual genes
-            for gene_id, alleles in alleles_by_gene.items():
-                base_fitness.extend([a.fitness for a in alleles])
+            base_fitness = np.mean([a.fitness for a in alleles])
             
-            # Interaction effects
-            for i, j in self.interaction_pairs:
-                if i in alleles_by_gene and j in alleles_by_gene:
-                    # Synergistic: high + high = bonus
-                    # Antagonistic: high + high = penalty
-                    fitness_i = np.mean([a.fitness for a in alleles_by_gene[i]])
-                    fitness_j = np.mean([a.fitness for a in alleles_by_gene[j]])
-                    
-                    # Synergistic epistasis example
-                    if fitness_i > 0.7 and fitness_j > 0.7:
-                        interaction_effects.append(0.2)  # Bonus
-                    # Antagonistic epistasis example
-                    elif fitness_i > 0.8 and fitness_j < 0.3:
-                        interaction_effects.append(-0.3)  # Incompatibility
-                    else:
-                        interaction_effects.append(0)
+            if gene.gene_type == GeneType.INDEPENDENT:
+                fitness_components[gene_name] = base_fitness
             
-            base = np.mean(base_fitness)
-            interactions = np.mean(interaction_effects) if interaction_effects else 0
-            return max(0, min(1, base + interactions))
+            elif gene.gene_type == GeneType.PAIRWISE:
+                # Calculate with interactions
+                interaction_effect = 0
+                for partner_name in gene.interaction_partners:
+                    partner_alleles = self._get_alleles_for_gene(partner_name, chromosomes)
+                    if partner_alleles:
+                        partner_fitness = np.mean([a.fitness for a in partner_alleles])
+                        
+                        # Apply interaction rules
+                        if partner_name in gene.synergistic_pairs:
+                            if base_fitness > 0.6 and partner_fitness > 0.6:
+                                interaction_effect += 0.2
+                        elif partner_name in gene.antagonistic_pairs:
+                            if base_fitness > 0.7 and partner_fitness > 0.7:
+                                interaction_effect -= 0.3
+                        
+                        # General interaction based on strength
+                        strength = gene.interaction_strengths.get(partner_name, 1.0)
+                        interaction_effect += (partner_fitness - 0.5) * strength * 0.1
+                
+                fitness_components[gene_name] = max(0, min(1, base_fitness + interaction_effect))
+            
+            elif gene.gene_type == GeneType.REGULATORY:
+                # Regulators affect their targets
+                regulatory_power = base_fitness
+                for target_name in gene.regulates:
+                    # Store regulatory effect to apply to targets
+                    fitness_components[f"{gene_name}_regulates_{target_name}"] = regulatory_power
+            
+            elif gene.gene_type == GeneType.REGULATED:
+                # Base fitness modified by regulators
+                regulatory_modifier = 1.0
+                for regulator_name in gene.regulated_by:
+                    reg_key = f"{regulator_name}_regulates_{gene_name}"
+                    if reg_key in fitness_components:
+                        # Regulators act as multipliers
+                        reg_effect = fitness_components[reg_key]
+                        regulatory_modifier *= (0.5 + reg_effect)  # Range 0.5-1.5
+                
+                fitness_components[gene_name] = base_fitness * regulatory_modifier
+            
+            else:
+                fitness_components[gene_name] = base_fitness
         
-        elif self.epistasis_type == 'pathway':
-            # Sequential pathway - weakest link matters most
+        # Calculate pathway fitness (weakest link)
+        for pathway_id, gene_names in genome.pathways.items():
             pathway_fitnesses = []
+            for gene_name in gene_names:
+                if gene_name and gene_name in fitness_components:
+                    pathway_fitnesses.append(fitness_components[gene_name])
             
-            for gene_id in self.pathway_order:
-                if gene_id in alleles_by_gene:
-                    gene_fitness = np.mean([a.fitness for a in alleles_by_gene[gene_id]])
-                    pathway_fitnesses.append(gene_fitness)
-            
-            if not pathway_fitnesses:
-                return 0.5
-            
-            # Fitness limited by weakest step, but not entirely
-            # Geometric mean gives more weight to weak links than arithmetic mean
-            return np.power(np.prod(pathway_fitnesses), 1/len(pathway_fitnesses))
+            if pathway_fitnesses:
+                # Geometric mean emphasizes weak links
+                pathway_fitness = np.power(np.prod(pathway_fitnesses), 1/len(pathway_fitnesses))
+                fitness_components[f"pathway_{pathway_id}"] = pathway_fitness
         
-        elif self.epistasis_type == 'modular':
-            # Different modules contribute independently
-            module_fitnesses = {}
+        # Calculate module fitness
+        for module_id, gene_names in genome.modules.items():
+            module_fitnesses = []
+            for gene_name in gene_names:
+                if gene_name in fitness_components:
+                    module_fitnesses.append(fitness_components[gene_name])
             
-            for gene_id, alleles in alleles_by_gene.items():
-                module = self.gene_modules.get(gene_id, 0)
-                if module not in module_fitnesses:
-                    module_fitnesses[module] = []
-                module_fitnesses[module].extend([a.fitness for a in alleles])
-            
-            # Each module's fitness is the mean of its genes
-            # Overall fitness is product (or mean) of module fitnesses
-            module_scores = []
-            for module, fitnesses in module_fitnesses.items():
-                module_scores.append(np.mean(fitnesses))
-            
-            # Multiplicative across modules
-            return np.power(np.prod(module_scores), 1/len(module_scores))
+            if module_fitnesses:
+                module_fitness = np.mean(module_fitnesses)
+                fitness_components[f"module_{module_id}"] = module_fitness
         
-        elif self.epistasis_type == 'regulatory':
-            # Some genes act as regulators that modify others
-            # First 20% of genes are regulators
-            n_regulators = max(1, self.n_genes // 5)
-            
-            regulator_fitness = []
-            regulated_fitness = []
-            
-            for gene_id, alleles in alleles_by_gene.items():
-                gene_fitness = np.mean([a.fitness for a in alleles])
-                if gene_id < n_regulators:
-                    regulator_fitness.append(gene_fitness)
-                else:
-                    regulated_fitness.append(gene_fitness)
-            
-            if not regulator_fitness or not regulated_fitness:
-                return 0.5
-            
-            # Regulators act as multipliers on regulated genes
-            regulator_effect = np.mean(regulator_fitness)
-            base_fitness = np.mean(regulated_fitness)
-            
-            # Regulator effect: good regulators (>0.5) enhance, bad ones suppress
-            modifier = 0.5 + regulator_effect  # Range 0.5-1.5
-            return max(0, min(1, base_fitness * modifier))
+        # Combine all fitness components
+        all_fitnesses = [f for f in fitness_components.values() if isinstance(f, (int, float))]
+        fitness = np.mean(all_fitnesses) if all_fitnesses else 0.5
+        individual._fitness = fitness
+        return fitness
     
-    # def _organize_alleles_by_gene(self, individual) -> Dict[int, List]:
-    #     """Organize alleles by their gene position"""
-    #     # Assuming genes are at same position across chromosomes
-    #     alleles_by_gene = {}
-        
-    #     for chrom_idx, chromosome in enumerate(individual.chromosomes):
-    #         for allele_idx, allele in enumerate(chromosome.alleles):
-    #             gene_id = allele_idx  # Gene position
-    #             if gene_id not in alleles_by_gene:
-    #                 alleles_by_gene[gene_id] = []
-    #             alleles_by_gene[gene_id].append(allele)
-        
-    #     return alleles_by_gene
-
-# Modified Individual class to use epistatic fitness
-# class EpistaticIndividual(Individual):
-#     def __init__(self, chromosomes: List[Chromosome], ploidy: int = 2, 
-#                  fitness_calculator=None):
-#         super().__init__(chromosomes, ploidy)
-#         self.fitness_calculator = fitness_calculator
-    
-#     @property
-#     def fitness(self) -> float:
-#         """Calculate fitness using epistatic interactions"""
-#         if self._fitness is None:
-#             if self.fitness_calculator:
-#                 self._fitness = self.fitness_calculator.calculate_fitness(self)
-#             else:
-#                 # Fallback to additive
-#                 all_fitness_values = []
-#                 for chromosome in self.chromosomes:
-#                     all_fitness_values.extend([a.fitness for a in chromosome.alleles])
-#                 self._fitness = np.mean(all_fitness_values) if all_fitness_values else 0.0
-#         return self._fitness
+    def _get_alleles_for_gene(self, gene_name: str, chromosomes: List[Chromosome]) -> List[Allele]:
+        """Get all alleles for a gene across chromosomes"""
+        alleles = []
+        for chromosome in chromosomes:
+            allele = chromosome.get_allele(gene_name)
+            if allele:
+                alleles.append(allele)
+        return alleles

@@ -1,0 +1,7 @@
+{
+    "typeCheckingMode": "off",
+    "reportOptionalMemberAccess": false,
+    "reportUnknownMemberType": false,
+    "reportUnknownArgumentType": false,
+    "reportUnknownVariableType": false
+}

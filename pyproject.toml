@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "popgensim"
+version = "0.1.0"
+description = "simulating population genetics!"
+authors = [{name = "gront", email = "gront@gront.com"}]
+requires-python = ">=3.10"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["popgensim"]
+
+[tool.pyright]
+reportOptionalMemberAccess = false
+reportGeneralTypeIssues = "warning"
+reportUnknownMemberType = false
+reportUnknownArgumentType = false
+reportUnknownVariableType = false
+reportUnnecessaryTypeIgnoreComment = false
+

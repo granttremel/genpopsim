@@ -15,7 +15,7 @@ class GeneType(Enum):
 class Gene:
     """Gene with interaction information"""
     name: str
-    gene_type: GeneType
+    gene_type: GeneType = GeneType.INDEPENDENT
     
     # Interaction partners (for pairwise)
     interaction_partners: Set[str] = field(default_factory=set)
@@ -56,7 +56,7 @@ class Genome:
             if gene.pathway_position is not None:
                 # Ensure list is long enough
                 while len(self.pathways[gene.pathway_id]) <= gene.pathway_position:
-                    self.pathways[gene.pathway_id].append(None)
+                    self.pathways[gene.pathway_id].append("")
                 self.pathways[gene.pathway_id][gene.pathway_position] = gene.name
             else:
                 self.pathways[gene.pathway_id].append(gene.name)
