@@ -1,7 +1,7 @@
 
 from popgensim.genetics import GeneType,Gene,Genome
 from popgensim import Allele,Chromosome,Individual,Population,ReproductionMode
-from popgensim.epistasis import FitnessCalculator
+from popgensim.world.energetics import EnergyCalculator
 import numpy as np
 import matplotlib.pyplot as plt
 
